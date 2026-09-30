@@ -1,6 +1,6 @@
 {
   "name": "@oh-my-pi/omp-gui",
-  "version": "0.9.12",
+  "version": "0.9.13",
   "private": true,
   "type": "module",
   "description": "Desktop GUI for the omp coding agent",

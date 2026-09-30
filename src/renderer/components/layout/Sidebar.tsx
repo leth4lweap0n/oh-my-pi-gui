@@ -9,6 +9,7 @@ import {
 	Coins,
 	ExternalLink,
 	Folder,
+	FolderOpen,
 	GitBranchPlus,
 	GitPullRequest,
 	Keyboard,
@@ -999,6 +1000,27 @@ export function Sidebar() {
 									onSelect: () => {
 										setGroupMenu(null);
 										useUiStore.getState().openWorktreeDialog({ baseCwd: groupMenu.group.cwd });
+									},
+								},
+								{
+									id: "group-open-folder",
+									label: t("sidebar.menu.openInFileManager"),
+									icon: FolderOpen,
+									onSelect: () => {
+										const cwd = groupMenu.group.cwd;
+										setGroupMenu(null);
+										// The main process opens a directory with the OS default handler —
+										// Explorer, Finder, or the Linux file manager — so this stays
+										// cross-platform without naming any of them.
+										void window.omp.system.openPath(cwd).then(result => {
+											if (!result?.ok) {
+												toast({
+													variant: "error",
+													title: t("sidebar.openFolderFailed"),
+													message: result?.error || cwd,
+												});
+											}
+										});
 									},
 								},
 								{

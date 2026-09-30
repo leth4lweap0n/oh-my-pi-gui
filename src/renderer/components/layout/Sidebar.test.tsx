@@ -1,8 +1,7 @@
 /**
  * Sidebar integration contracts: Code/Work modes, first-class global chats,
- * workspace group context menu (5 items), session row
- * context menu (6 items), pinned-first ordering, per-task busy gates, and
- * tab-first opening.
+ * workspace group context menu (6 items), session row context menu (6 items),
+ * pinned-first ordering, per-task busy gates, and tab-first opening.
  * Same linkedom + react-dom harness as TabBar.test.tsx.
  */
 
@@ -69,6 +68,9 @@ interface MockOmp {
 		set: Mock<(key: string, value: unknown) => Promise<void>>;
 	};
 	rpc: Record<string, Mock<(...args: unknown[]) => Promise<unknown>>>;
+	system: {
+		openPath: Mock<(path: string) => Promise<{ ok: boolean; error?: string }>>;
+	};
 }
 
 function installMockOmp(sessionList: SessionInfo[]): MockOmp {
@@ -103,6 +105,9 @@ function installMockOmp(sessionList: SessionInfo[]): MockOmp {
 		prefs: {
 			get: vi.fn(async () => null),
 			set: vi.fn(async () => {}),
+		},
+		system: {
+			openPath: vi.fn(async () => ({ ok: true })),
 		},
 		rpc: new Proxy({} as MockOmp["rpc"], {
 			get: (target, prop) => {
@@ -455,8 +460,8 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(groupedAgentRow?.querySelector("span[data-sidebar-session-icon]")).not.toBeNull();
 	});
 
-	it("right-click on a workspace header opens the agent-only 5-item group menu", async () => {
-		installMockOmp(LIST);
+	it("right-click on a workspace header opens the agent-only 6-item group menu", async () => {
+		const omp = installMockOmp(LIST);
 		seedStores();
 		await mount(<Sidebar />);
 
@@ -468,11 +473,21 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(labels.some(label => label.includes("New agent session here"))).toBe(true);
 		expect(labels.some(label => label.includes("New chat session here"))).toBe(false);
 		expect(labels.some(label => label.includes("New worktree tab here"))).toBe(true);
+		expect(labels.some(label => label.includes("Open folder in file manager"))).toBe(true);
 		expect(labels.some(label => label.includes("Rename"))).toBe(true);
 		expect(labels.some(label => label.includes("Pin to top"))).toBe(true);
 		expect(labels.some(label => label.includes("Delete"))).toBe(true);
-		expect(labels).toHaveLength(5);
+		expect(labels).toHaveLength(6);
+
+		// The folder action goes through the OS default handler (Explorer,
+		// Finder, or the Linux file manager), so no platform is named here.
+		const openFolder = [...document.body.querySelectorAll('[role="menu"] button')].find(button =>
+			(button.textContent ?? "").includes("Open folder in file manager"),
+		);
+		await fire(openFolder as Element, "onClick");
+		expect(omp.system.openPath).toHaveBeenCalledWith("/work/alpha");
 	});
+
 
 	it("right-click on a session row opens the 6-item session menu", async () => {
 		const omp = installMockOmp(LIST);

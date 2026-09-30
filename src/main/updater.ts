@@ -35,7 +35,7 @@ import {
 const { autoUpdater } = pkg;
 
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
-const RELEASE_DOWNLOAD_BASE = "https://github.com/nornzach/oh-my-pi-gui/releases/download/";
+const RELEASE_DOWNLOAD_BASE = "https://github.com/leth4lweap0n/oh-my-pi-gui/releases/download/";
 const PROGRESS_INTERVAL_MS = 100;
 
 /**

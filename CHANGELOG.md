@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Open folder in file manager** — the workspace group context menu opens that project's folder with the OS default handler (Explorer, Finder, or the Linux file manager). No platform is named in the code, and a missing folder reports the reason instead of failing silently.
+
+### Changed
+
+- **Updates come from this fork** — the packaged updater feed now points at `leth4lweap0n/oh-my-pi-gui` instead of `nornzach/oh-my-pi-gui`, so the update banner reacts to this repository's releases only. Upstream work is merged in deliberately rather than arriving as an in-app update that would silently replace local changes. Note: the banner on an already-installed build keeps its old feed until one new build is installed, because the feed is baked into the package at build time.
+
 ## [0.9.12] - 2026-09-30
 
 ### Added

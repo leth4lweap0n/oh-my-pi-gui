@@ -91,7 +91,7 @@ linux:
 
 publish:
   provider: github
-  owner: nornzach
+  owner: leth4lweap0n
   repo: oh-my-pi-gui
 
 electronLanguages:
