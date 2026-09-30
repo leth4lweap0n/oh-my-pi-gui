@@ -2,7 +2,7 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
-import type { RpcResponse } from "../../../../shared/rpc-types";
+import type { RpcResponse, TodoPhase, TodoTask } from "../../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useToastStore } from "../../../stores/toast";
 import { useTodoStore } from "../../../stores/todo";
@@ -54,6 +54,23 @@ function statusCycleButton(): { click(): void; dispatchEvent(event: Event): void
 	return cycle;
 }
 
+
+/**
+ * A plan the user watched finish. A finished plan that arrives with the session
+ * (hydration — a resume or an app restart) is never shown at all, so a card
+ * test has to arrive the way the real one does: unfinished first, completed after.
+ */
+function finishedWhileWatching(phases: TodoPhase[]): void {
+	const store = useTodoStore.getState();
+	store.setPhases(
+		phases.map(phase => ({
+			name: phase.name,
+			tasks: phase.tasks.map(task => ({ content: task.content, status: "pending" as TodoTask["status"] })),
+		})),
+	);
+	store.setPhases(phases);
+}
+
 afterEach(async () => {
 	await act(async () => root?.unmount());
 	container?.remove();
@@ -83,7 +100,7 @@ describe("TodoDockCard", () => {
 	});
 
 	it("collapses when the task header row is clicked", async () => {
-		useTodoStore.getState().setPhases([
+		finishedWhileWatching([
 			{
 				name: "Compatibility",
 				tasks: [{ content: "Update model compatibility", status: "completed" }],
@@ -102,7 +119,7 @@ describe("TodoDockCard", () => {
 	});
 
 	it("reveals every restored task when view all is clicked", async () => {
-		useTodoStore.getState().setPhases([
+		finishedWhileWatching([
 			{
 				name: "Restored",
 				tasks: Array.from({ length: 12 }, (_, index) => ({
@@ -150,7 +167,7 @@ describe("TodoDockCard", () => {
 		// class whose calc() had an invalid bare dash — the declaration was
 		// dropped, the list grew unbounded, and nothing could scroll. The
 		// contract is now an INLINE style, present the moment focus starts.
-		useTodoStore.getState().setPhases([
+		finishedWhileWatching([
 			{
 				name: "Live",
 				tasks: Array.from({ length: 30 }, (_, index) => ({
@@ -255,7 +272,7 @@ describe("TodoDockCard", () => {
 	it("keeps blocked and abandoned out of the single-click cycle", async () => {
 		// "blocked" is a verdict the agent re-plans around, so one click on a
 		// finished task must not reach it.
-		useTodoStore.getState().setPhases([
+		finishedWhileWatching([
 			{
 				name: "Live",
 				tasks: [{ content: "Shipped work", status: "completed" }],

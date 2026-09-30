@@ -1,50 +1,52 @@
 import { useEffect, useRef, useState } from "react";
 import type { RpcGitStatus } from "../../shared/rpc-types";
-import { acceptsActiveTabEvents, onActiveTabRouteSettled } from "../lib/tab-routing";
+import { useTabRpc } from "../lib/tab-rpc";
 import { useSessionStore } from "../stores/session";
-import { useTabsStore } from "../stores/tabs";
+
+const POLL_INTERVAL_MS = 2500;
 
 /**
- * Live git state for the status footer's git segment (plan/20): polls the
- * ACTIVE tab's sidecar `get_git_status` every 2.5s (porcelain is ~10-30ms),
- * resets on tab/cwd change (no stale cross-tab flash), and refetches on the
- * streaming true→false edge — a finished run likely touched files. Background
- * tabs are never polled: the footer only renders active context.
+ * Live git state for the title bar's git segment (plan/20): polls the tab this
+ * component renders inside via the tab-scoped RPC (so a consumer in a split
+ * pane reports the checkout that pane's agent actually edits, not the globally
+ * active tab's) every 2.5s — porcelain is ~10-30ms. Resets when the cwd or the
+ * rpc client changes (no stale cross-tab flash) and refetches on the streaming
+ * true→false edge — a finished run likely touched files. Off a tab runtime it
+ * degrades to the active tab.
  */
 export function useGitStatus(): { status: RpcGitStatus | null; refresh: () => void } {
-	const activeTabId = useTabsStore(s => s.activeTabId);
+	const tabRpc = useTabRpc();
 	const cwd = useSessionStore(s => s.cwd);
 	const isStreaming = useSessionStore(s => s.isStreaming);
 	const [status, setStatus] = useState<RpcGitStatus | null>(null);
 	const refreshRef = useRef<() => void>(() => {});
 
 	useEffect(() => {
-		void activeTabId;
-		void cwd;
+		// No session cwd yet: the sidecar has no checkout to report on, and asking
+		// it now would race its own cwd.
+		if (!cwd) {
+			refreshRef.current = () => {};
+			setStatus(null);
+			return;
+		}
 		let cancelled = false;
 		const refresh = async () => {
-			if (!acceptsActiveTabEvents()) return;
-			const requestTabId = useTabsStore.getState().activeTabId;
 			try {
-				const response = await window.omp.rpc.getGitStatus();
-				if (!cancelled && acceptsActiveTabEvents() && useTabsStore.getState().activeTabId === requestTabId) {
-					setStatus(response.success ? (response.data as RpcGitStatus) : null);
-				}
+				const response = await tabRpc.getGitStatus();
+				if (!cancelled) setStatus(response.success ? (response.data as RpcGitStatus) : null);
 			} catch {
-				if (!cancelled && useTabsStore.getState().activeTabId === requestTabId) setStatus(null);
+				if (!cancelled) setStatus(null);
 			}
 		};
 		refreshRef.current = () => void refresh();
 		setStatus(null);
 		void refresh();
-		const unsubscribeRoute = onActiveTabRouteSettled(() => void refresh());
-		const timer = window.setInterval(() => void refresh(), 2500);
+		const timer = window.setInterval(() => void refresh(), POLL_INTERVAL_MS);
 		return () => {
 			cancelled = true;
-			unsubscribeRoute();
 			window.clearInterval(timer);
 		};
-	}, [activeTabId, cwd]);
+	}, [cwd, tabRpc]);
 
 	const wasStreaming = useRef(false);
 	useEffect(() => {

@@ -48,11 +48,20 @@ const getSessionStats = vi.fn(async () => ({
 		cost: 0.1234,
 	},
 }));
+
+/** Git status the title-bar segment polls — off-repo by default, so other cases see no chip. */
+const NO_GIT_REPO = { isRepo: false, branch: null, staged: 0, unstaged: 0, untracked: 0 };
+let gitStatus: Record<string, unknown> = NO_GIT_REPO;
+const getGitStatus = vi.fn(async () => ({ type: "response" as const, command: "get_git_status", success: true as const, data: gitStatus }));
 (
 	window as unknown as {
-		omp: { sessions: typeof sessions; events: typeof events; rpc: { getSessionStats: typeof getSessionStats } };
+		omp: {
+			sessions: typeof sessions;
+			events: typeof events;
+			rpc: { getSessionStats: typeof getSessionStats; getGitStatus: typeof getGitStatus };
+		};
 	}
-).omp = { sessions, events, rpc: { getSessionStats } };
+).omp = { sessions, events, rpc: { getSessionStats, getGitStatus } };
 
 let container: TestElement;
 let root: Root;
@@ -83,6 +92,7 @@ afterEach(async () => {
 	useUiStore.getState().closeSessionOverlays();
 	getSessionStats.mockRestore();
 	vi.clearAllMocks();
+	gitStatus = NO_GIT_REPO;
 });
 
 describe("TitleBar", () => {
@@ -215,5 +225,20 @@ describe("TitleBar", () => {
 		expect(importItem).toBeDefined();
 		await act(async () => importItem?.click());
 		expect(useUiStore.getState().importDialogOpen).toBe(true);
+	});
+
+	it("shows the checkout's branch and dirty counters", async () => {
+		gitStatus = { isRepo: true, branch: "omp/gui/fix", staged: 1, unstaged: 2, untracked: 0 };
+		useSessionStore.setState({ status: "ready", sessionId: "session-1", cwd: "/tmp/project" });
+		await mount();
+		await act(async () => Promise.resolve());
+
+		const segment = document.querySelector("[data-git-segment]") as unknown as
+			| { textContent: string | null; getAttribute: (name: string) => string | null }
+			| null;
+		if (!segment) throw new Error("git segment not mounted in the title bar");
+		expect(segment.textContent).toContain("omp/gui/fix");
+		expect(segment.textContent).toContain("*2");
+		expect(segment.getAttribute("title")).toContain("/tmp/project");
 	});
 });

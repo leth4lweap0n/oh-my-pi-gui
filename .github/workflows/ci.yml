@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # No lockfile is committed (the GUI nests inside the omp monorepo
+          # workspace), so the version is pinned here instead.
+          bun-version: "1.4.2"
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('package.json') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      - name: Install
+        run: bun install
+
+      - name: Types
+        run: bun run check:types
+
+      # The renderer suite is the contract: linkedom harness, zustand stores,
+      # i18n parity. It needs no sidecar and no build. src/main is deliberately
+      # not gated here — those suites spawn the bundled sidecar (resources/omp,
+      # gitignored) and probe the host's login shell, so they only mean anything
+      # on a machine that has both. Run them locally after building the sidecar:
+      # `bunx vitest run src/main`.
+      - name: Tests
+        run: bunx vitest run src/renderer src/shared src/preload
+
+      # Lint rules only, not the formatter: this repo is developed on Windows
+      # checkouts, so a whole-tree `biome check` would fail CI on CRLF endings
+      # rather than on anything real. Formatting stays a local/editor concern.
+      - name: Lint
+        run: bunx biome lint .

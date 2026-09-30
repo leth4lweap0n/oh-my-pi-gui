@@ -30,6 +30,7 @@ import { useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { ContextMenu, type ContextMenuAnchor, type ContextMenuItem } from "../common/ContextMenu";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
+import { GitStatusSegment } from "./GitStatusSegment";
 import { sessionCacheHitPercent, sessionExecutionDurationMs } from "./session-metrics";
 
 /**
@@ -357,6 +358,7 @@ export function TitleBar() {
 				</span>
 			)}
 
+			<GitStatusSegment />
 			<div className="flex-1" />
 
 			<div className="omp-session-metrics no-drag flex shrink-0 items-center gap-3 font-mono text-omp-sm tabular-nums text-[var(--omp-muted)]">

@@ -4,12 +4,19 @@
  * terminal lifecycle frame, so a wholesale replace would vanish finished
  * agents from the UI mid-poll. Live rows absent from the fetch are released.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RpcResponse, SubagentSnapshot } from "../../shared/rpc-types";
-import { useSubagentsStore } from "./subagents";
+import { DOCK_FINISHED_HIDE_MS } from "./dock-finished";
+import { selectAgentsDockVisible, useSubagentsStore } from "./subagents";
 
 const getSubagents = vi.fn();
-(globalThis as Record<string, unknown>).window = { omp: { rpc: { getSubagents } } };
+// The store arms its dock grace period on window; the stub delegates to the
+// global timers at call time so fake timers keep working.
+(globalThis as Record<string, unknown>).window = {
+	omp: { rpc: { getSubagents } },
+	setTimeout: (...args: Parameters<typeof setTimeout>) => globalThis.setTimeout(...args),
+	clearTimeout: (handle: number) => globalThis.clearTimeout(handle),
+};
 
 function snap(overrides: Partial<SubagentSnapshot>): SubagentSnapshot {
 	return { id: "a1", index: 1, agent: "scout", status: "running", lastUpdate: Date.now(), ...overrides };
@@ -178,5 +185,58 @@ describe("subagents store refresh", () => {
 		getSubagents.mockRejectedValue(new Error("sidecar gone"));
 		await useSubagentsStore.getState().refresh();
 		expect(useSubagentsStore.getState().subagents.has("live")).toBe(true);
+	});
+});
+
+describe("subagents store dock visibility", () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("drops the roster once every row finished, and a live row pins it", () => {
+		const store = useSubagentsStore.getState();
+		store.setSnapshots([snap({ id: "a", status: "running" })]);
+		vi.advanceTimersByTime(DOCK_FINISHED_HIDE_MS * 3);
+		expect(selectAgentsDockVisible(useSubagentsStore.getState())).toBe(true);
+
+		store.setSnapshots([snap({ id: "a", status: "completed" })]);
+		vi.advanceTimersByTime(DOCK_FINISHED_HIDE_MS - 1);
+		expect(selectAgentsDockVisible(useSubagentsStore.getState())).toBe(true);
+		vi.advanceTimersByTime(1);
+		expect(selectAgentsDockVisible(useSubagentsStore.getState())).toBe(false);
+
+		// A subagent that starts working brings the roster straight back.
+		store.setSnapshots([snap({ id: "a", status: "running" })]);
+		expect(selectAgentsDockVisible(useSubagentsStore.getState())).toBe(true);
+	});
+
+	it("treats a parked reviewer as finished work", () => {
+		const store = useSubagentsStore.getState();
+		store.setSnapshots([snap({ id: "reviewer", status: "parked" })]);
+		vi.advanceTimersByTime(DOCK_FINISHED_HIDE_MS);
+		expect(selectAgentsDockVisible(useSubagentsStore.getState())).toBe(false);
+	});
+
+	it("keeps a stale registration pinned — the hub still owns it", () => {
+		useSubagentsStore.getState().setSnapshots([snap({ id: "a", status: "stale" })]);
+		vi.advanceTimersByTime(DOCK_FINISHED_HIDE_MS * 2);
+		expect(selectAgentsDockVisible(useSubagentsStore.getState())).toBe(true);
+	});
+
+	it("is not restarted by the streaming roster poll re-reading the same finished rows", async () => {
+		const store = useSubagentsStore.getState();
+		store.setSnapshots([snap({ id: "a", status: "completed" })]);
+		// The dock polls get_subagents every few seconds while a run streams; a
+		// restarted clock here would keep the card up for the whole session.
+		for (let elapsed = 0; elapsed < DOCK_FINISHED_HIDE_MS * 2; elapsed += 2000) {
+			getSubagents.mockResolvedValue(ok([snap({ id: "a", status: "completed" })]));
+			await store.refresh();
+			vi.advanceTimersByTime(2000);
+		}
+		expect(selectAgentsDockVisible(useSubagentsStore.getState())).toBe(false);
 	});
 });

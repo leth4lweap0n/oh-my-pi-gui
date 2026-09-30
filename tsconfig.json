@@ -12,7 +12,7 @@
 		"noEmit": true,
 		"jsx": "react-jsx",
 		"lib": ["ES2024", "DOM", "DOM.Iterable"],
-		"types": ["node"],
+		"types": ["node", "bun"],
 		"paths": {
 			"@shared/*": ["./src/shared/*"],
 			"@renderer/*": ["./src/renderer/*"]

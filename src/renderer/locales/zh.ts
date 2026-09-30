@@ -114,6 +114,11 @@ export const zh: Record<string, string> = {
 	"tabs.switchFailed": "无法切换标签页",
 	"tabs.confirmClose": "确认关闭？运行中的任务将被中止",
 
+	// Git status segment (title bar, plan/20)
+	"gitSegment.branch": "分支",
+	"gitSegment.counts": "已暂存 {staged}、未暂存 {unstaged}、未跟踪 {untracked}",
+	"gitSegment.refresh": "点击刷新",
+
 	// Worktree create dialog (tab × worktree, plan/20)
 	"worktree.baseScope": "新工作树基于已提交版本创建，不会复制当前未提交的改动。",
 	"worktree.openFailed": "工作树已创建于 {path}，但标签打开失败。重试会打开此工作树。",

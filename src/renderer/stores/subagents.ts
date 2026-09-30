@@ -1,5 +1,6 @@
 import { createStore } from "zustand/vanilla";
 import type { SubagentFrame, SubagentSnapshot } from "../../shared/rpc-types";
+import { createDockFinishedTimer } from "./dock-finished";
 import { activeTabCommand, createScopedStoreHook, type TabCommand } from "./session-runtime-context";
 
 export type SubagentNode = SubagentSnapshot;
@@ -9,6 +10,8 @@ export interface SubagentsStore {
 	/** Why the roster could not be read. Rows stay on screen when set; an empty
 	    roster plus an error is "couldn't load", never "nothing spawned". */
 	error: string | null;
+	/** True once the finished grace period elapsed — the dock stops showing the roster. */
+	completedHidden: boolean;
 	applyFrame: (frame: SubagentFrame) => void;
 	setSnapshots: (snapshots: SubagentNode[]) => void;
 	/**
@@ -21,6 +24,30 @@ export interface SubagentsStore {
 	 */
 	refresh: (options?: { expect?: () => boolean }) => Promise<void>;
 	reset: () => void;
+}
+
+/**
+ * A roster whose every row has stopped working: terminal statuses (completed,
+ * failed, abandoned, …) plus `parked` — a parked reviewer finished its review
+ * and only waits for a follow-up, so it must not keep the dock card up. `stale`
+ * stays live: the hub still owns that registration.
+ */
+function allAgentsFinished(nodes: Iterable<SubagentNode>): boolean {
+	let count = 0;
+	for (const node of nodes) {
+		count++;
+		if (LIVE_STATUSES[node.status] && node.status !== "parked") return false;
+	}
+	return count > 0;
+}
+
+/**
+ * The dock shows the agents card while the roster has work in it, and drops it
+ * once every row finished and the grace period elapsed — the same rule the todo
+ * card follows, and the same rule for the dock region and the card itself.
+ */
+export function selectAgentsDockVisible(state: Pick<SubagentsStore, "subagents" | "completedHidden">): boolean {
+	return state.subagents.size > 0 && !state.completedHidden;
 }
 
 /**
@@ -64,10 +91,24 @@ function mergeFetchedSnapshot(fresh: SubagentNode, prev: SubagentNode): Subagent
 
 export const createSubagentsStore = (command: TabCommand = activeTabCommand) => {
 	let refreshVersion = 0;
-	return createStore<SubagentsStore>()((set, get) => ({
-		subagents: new Map(),
-		error: null,
-		applyFrame: frame => {
+	const store = createStore<SubagentsStore>()((set, get) => {
+		// One timer per store (each tab runtime owns one). Armed on the transition
+		// into "every row finished", so the every-few-seconds roster poll while a
+		// run streams cannot keep resetting it.
+		const finishedTimer = createDockFinishedTimer(() => set({ completedHidden: true }));
+		const syncFinished = (previous: Map<string, SubagentNode>, next: Map<string, SubagentNode>) => {
+			if (!allAgentsFinished(next.values())) {
+				finishedTimer.cancel();
+				if (get().completedHidden) set({ completedHidden: false });
+				return;
+			}
+			finishedTimer.arm(allAgentsFinished(previous.values()));
+		};
+		return {
+			subagents: new Map<string, SubagentNode>(),
+			error: null,
+			completedHidden: false,
+			applyFrame: frame => {
 			// Copy-on-first-write: frames that match no known subagent leave the
 			// map untouched and must not trigger a re-render.
 			let subagents: Map<string, SubagentNode> | null = null;
@@ -132,7 +173,10 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 				}
 			}
 
-			if (subagents) set({ subagents });
+			if (subagents) {
+				syncFinished(get().subagents, subagents);
+				set({ subagents });
+			}
 		},
 		setSnapshots: snapshots => {
 			refreshVersion++;
@@ -141,6 +185,7 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 				const normalized = normalizeSnapshot(snap);
 				subagents.set(normalized.id, normalized);
 			}
+			syncFinished(get().subagents, subagents);
 			set({ subagents });
 		},
 		refresh: async options => {
@@ -183,6 +228,7 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 					if (!fetched.has(id) && (!LIVE_STATUSES[node.status] || node !== before.get(id)))
 						subagents.set(id, node);
 				}
+				syncFinished(current, subagents);
 				set({ subagents, error: null });
 			} catch (cause) {
 				// Best-effort poll: frames + hydration remain authoritative. The
@@ -193,9 +239,12 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 		},
 		reset: () => {
 			refreshVersion++;
-			set({ subagents: new Map(), error: null });
+			finishedTimer.cancel();
+			set({ subagents: new Map<string, SubagentNode>(), error: null, completedHidden: false });
 		},
-	}));
+	};
+	});
+	return store;
 };
 
 const defaultSubagentsStore = createSubagentsStore();

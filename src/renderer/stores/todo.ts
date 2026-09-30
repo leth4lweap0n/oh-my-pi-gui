@@ -1,5 +1,6 @@
 import { createStore } from "zustand/vanilla";
 import type { TodoPhase, TodoTask } from "../../shared/rpc-types";
+import { createDockFinishedTimer } from "./dock-finished";
 import { createScopedStoreHook } from "./session-runtime-context";
 
 export interface UiTodoTask extends TodoTask {
@@ -27,6 +28,21 @@ export interface TodoSnapshot {
 /** Archive cap — the transcript keeps the newest snapshots, drops the oldest. */
 const HISTORY_LIMIT = 30;
 
+/** A phase with no tasks counts as done — an empty phase is a finished one. */
+function allTasksCompleted(phases: readonly UiTodoPhase[]): boolean {
+	return phases.length > 0 && phases.every(phase => phase.tasks.every(task => task.status === "completed"));
+}
+
+/**
+ * The dock shows the todo card for any plan or pending reminder, and drops it
+ * once the finished grace period elapses. One rule for both consumers (the
+ * dock region and the card itself) — they must never disagree, or a hidden
+ * card leaves an empty frame behind.
+ */
+export function selectTodoDockVisible(state: Pick<TodoStore, "phases" | "completedHidden" | "reminderVisible">): boolean {
+	return (state.phases.length > 0 && !state.completedHidden) || state.reminderVisible;
+}
+
 export interface TodoStore {
 	phases: UiTodoPhase[];
 	reminderVisible: boolean;
@@ -35,6 +51,8 @@ export interface TodoStore {
 	history: TodoSnapshot[];
 	/** False until the first post-reset setPhases — that one is hydration, not a change. */
 	historyHydrated: boolean;
+	/** True once the finished grace period elapsed — the dock stops showing the plan. */
+	completedHidden: boolean;
 	setPhases: (phases: TodoPhase[]) => void;
 	autoClearCompleted: () => void;
 	showReminder: (todos: TodoTask[]) => void;
@@ -48,6 +66,7 @@ const initialState = {
 	reminderTodos: [] as TodoTask[],
 	history: [] as TodoSnapshot[],
 	historyHydrated: false,
+	completedHidden: false,
 };
 
 function normalizePhases(phases: TodoPhase[]): UiTodoPhase[] {
@@ -74,48 +93,99 @@ function fingerprintPhases(
 
 /** Todo identity without progress — status-only changes update one transcript row. */
 function fingerprintTodo(phases: readonly { name: string; tasks: readonly { content: string }[] }[]): string {
-	return JSON.stringify(phases.map(phase => [phase.name, phase.tasks.map(task => task.content)]));
+	return JSON.stringify(phases.map(phase => [phase.name, phase.tasks.map(task => [task.content])]));
 }
 
 export const createTodoStore = () =>
-	createStore<TodoStore>()((set, get) => ({
-		...initialState,
-		setPhases: phases => {
-			const state = get();
-			const next = normalizePhases(phases);
-			if (!state.historyHydrated || fingerprintPhases(next) === fingerprintPhases(state.phases)) {
-				set({ phases: next, historyHydrated: true });
+	createStore<TodoStore>()((set, get) => {
+		// One timer per store (each tab runtime owns one): a finished plan starts
+		// its grace period here so the dock region and the card itself can never
+		// disagree about whether the plan is showing.
+		const finishedTimer = createDockFinishedTimer(() => set({ completedHidden: true }));
+		/**
+		 * A plan counts as finished only while nothing is pending: a reminder is
+		 * the agent asking for attention and outranks the auto-hide. The grace
+		 * period is armed on the TRANSITION into finished, so the identical
+		 * re-pulls (every agent_end, every app restart) cannot keep resetting it.
+		 */
+		const isFinished = (phases: readonly UiTodoPhase[], reminderVisible: boolean) =>
+			allTasksCompleted(phases) && !reminderVisible;
+		const syncFinished = (previousFinished: boolean, nextFinished: boolean) => {
+			if (!nextFinished) {
+				finishedTimer.cancel();
+				if (get().completedHidden) set({ completedHidden: false });
 				return;
 			}
-			const archivedPhases = next.map(phase => ({
-				name: phase.name,
-				tasks: phase.tasks.map(task => ({ content: task.content, status: task.status })),
-			}));
-			const previous = state.history.at(-1);
-			const snapshot: TodoSnapshot =
-				previous && fingerprintTodo(previous.phases) === fingerprintTodo(archivedPhases)
-					? { ...previous, phases: archivedPhases }
-					: {
-							id: `todo-snapshot-${Date.now()}-${state.history.length}`,
-							ts: Date.now(),
-							phases: archivedPhases,
-						};
-			const history =
-				previous?.id === snapshot.id ? [...state.history.slice(0, -1), snapshot] : [...state.history, snapshot];
-			if (history.length > HISTORY_LIMIT) history.shift();
-			set({ phases: next, history, historyHydrated: true });
-		},
-		autoClearCompleted: () =>
-			set({
-				phases: [],
-				reminderVisible: false,
-				reminderTodos: [],
-				historyHydrated: true,
-			}),
-		showReminder: todos => set({ reminderVisible: true, reminderTodos: todos }),
-		clearReminder: () => set({ reminderVisible: false, reminderTodos: [] }),
-		reset: () => set(initialState),
-	}));
+			finishedTimer.arm(previousFinished);
+		};
+
+		return {
+			...initialState,
+			setPhases: phases => {
+				const state = get();
+				const next = normalizePhases(phases);
+				if (!state.historyHydrated) {
+					// Hydration is the first write after a session reset — including the
+					// restart that re-pulls a plan the user already watched finish. It
+					// gets NO grace period: nobody watched that plan complete, so
+					// flashing the card on every reopen is noise. A plan that arrives
+					// unfinished still shows, and its later completion arms the timer.
+					const finishedOnArrival = isFinished(next, state.reminderVisible);
+					finishedTimer.cancel();
+					set({ phases: next, historyHydrated: true, completedHidden: finishedOnArrival });
+					return;
+				}
+				if (fingerprintPhases(next) === fingerprintPhases(state.phases)) {
+					set({ phases: next });
+					syncFinished(isFinished(state.phases, state.reminderVisible), isFinished(next, state.reminderVisible));
+					return;
+				}
+				const archivedPhases = next.map(phase => ({
+					name: phase.name,
+					tasks: phase.tasks.map(task => ({ content: task.content, status: task.status })),
+				}));
+				const previous = state.history.at(-1);
+				const snapshot: TodoSnapshot =
+					previous && fingerprintTodo(previous.phases) === fingerprintTodo(archivedPhases)
+						? { ...previous, phases: archivedPhases }
+						: {
+								id: `todo-snapshot-${Date.now()}-${state.history.length}`,
+								ts: Date.now(),
+								phases: archivedPhases,
+							};
+				const history =
+					previous?.id === snapshot.id ? [...state.history.slice(0, -1), snapshot] : [...state.history, snapshot];
+				if (history.length > HISTORY_LIMIT) history.shift();
+				set({ phases: next, history, historyHydrated: true });
+				syncFinished(isFinished(state.phases, state.reminderVisible), isFinished(next, state.reminderVisible));
+			},
+			autoClearCompleted: () => {
+				finishedTimer.cancel();
+				set({
+					phases: [],
+					reminderVisible: false,
+					reminderTodos: [],
+					historyHydrated: true,
+				});
+			},
+			// A reminder is the agent asking for attention — it outranks the auto-hide.
+			showReminder: todos => {
+				const state = get();
+				set({ reminderVisible: true, reminderTodos: todos });
+				syncFinished(isFinished(state.phases, state.reminderVisible), isFinished(state.phases, true));
+			},
+			// Dismissed reminder over a finished plan: the grace period starts over.
+			clearReminder: () => {
+				const state = get();
+				set({ reminderVisible: false, reminderTodos: [] });
+				syncFinished(isFinished(state.phases, state.reminderVisible), isFinished(state.phases, false));
+			},
+			reset: () => {
+				finishedTimer.cancel();
+				set(initialState);
+			},
+		};
+	});
 
 const defaultTodoStore = createTodoStore();
 export const useTodoStore = createScopedStoreHook("todo", defaultTodoStore);

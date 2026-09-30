@@ -4,11 +4,13 @@
  * todo/plan/agents/queue tabs with always-current center cards. Large
  * todo/agent collections render a compact summary and temporarily focus one
  * card for full-list inspection. Each card self-gates its visibility (no
- * todos, no subagents, plan mode off, empty
- * queue → nothing rendered), so the region collapses to zero height on an
- * idle session. The surrounding conversation owns vertical scrolling; a
- * focused card expands naturally instead of adding a nested scrollbar. Chat
- * tabs are tool-free — none of these surfaces can exist there. Every card
+ * todos, no subagents, plan mode off, empty queue → nothing rendered), so the
+ * region collapses to zero height on an idle session; a fully completed plan
+ * additionally leaves on its own after a short grace period (see
+ * `selectTodoDockVisible` in stores/todo), while an open reminder pins it. The
+ * surrounding conversation owns vertical scrolling; a focused card expands
+ * naturally instead of adding a nested scrollbar. Chat tabs are tool-free —
+ * none of these surfaces can exist there. Every card
  * sits behind its own error boundary: a card crash must never take down the
  * composer.
  */
@@ -19,9 +21,9 @@ import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useQueuedMessages } from "../../../stores/queue";
 import { useSessionStore } from "../../../stores/session";
-import { useSubagentsStore } from "../../../stores/subagents";
+import { selectAgentsDockVisible, useSubagentsStore } from "../../../stores/subagents";
 import { useActiveTabKind } from "../../../stores/tabs";
-import { useTodoStore } from "../../../stores/todo";
+import { selectTodoDockVisible, useTodoStore } from "../../../stores/todo";
 import { PanelErrorBoundary } from "../../common";
 import { AgentsDockCard } from "./AgentsDockCard";
 import { GoalDockBar } from "./GoalDockBar";
@@ -39,8 +41,8 @@ function WorkspaceDockContent() {
 	const t = useT();
 	const planModeEnabled = useSessionStore(state => state.planModeEnabled);
 	const goalVisible = useSessionStore(state => state.goal !== null);
-	const todoVisible = useTodoStore(state => state.phases.length > 0 || state.reminderVisible);
-	const agentsVisible = useSubagentsStore(state => state.subagents.size > 0);
+	const todoVisible = useTodoStore(selectTodoDockVisible);
+	const agentsVisible = useSubagentsStore(selectAgentsDockVisible);
 	const queued = useQueuedMessages();
 	const cardsVisible =
 		planModeEnabled || todoVisible || agentsVisible || queued.steering.length > 0 || queued.followUp.length > 0;

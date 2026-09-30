@@ -21,7 +21,7 @@ import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
 import { useMessagesStore } from "../../../stores/messages";
 import { useSessionStore } from "../../../stores/session";
-import { useSubagentsStore } from "../../../stores/subagents";
+import { selectAgentsDockVisible, useSubagentsStore } from "../../../stores/subagents";
 import { Badge } from "../../common";
 import { SubagentDag } from "../../panels/SubagentDag";
 import { SubagentTranscript } from "../../panels/SubagentTranscript";
@@ -173,6 +173,7 @@ export function AgentsDockCard({ pollMs = STREAM_POLL_MS }: { pollMs?: number })
 	const focused = focusedCard === "agents";
 	const showFull = !managed || focused;
 	const subagents = useSubagentsStore(state => state.subagents);
+	const completedHidden = useSubagentsStore(state => state.completedHidden);
 	const toolCallOwners = useSubagentGraphStore(state => state.toolCallOwners);
 	const messages = useMessagesStore(state => state.messages);
 	const isStreaming = useSessionStore(s => s.isStreaming);
@@ -230,11 +231,12 @@ export function AgentsDockCard({ pollMs = STREAM_POLL_MS }: { pollMs?: number })
 		[focusCard, focused, managed],
 	);
 
+	const visible = selectAgentsDockVisible({ subagents, completedHidden });
 	useEffect(() => {
-		if (focused && agents.length === 0) clearFocus();
-	}, [agents.length, clearFocus, focused]);
+		if (focused && !visible) clearFocus();
+	}, [clearFocus, focused, visible]);
 
-	if (agents.length === 0) return null;
+	if (!visible) return null;
 
 	return (
 		<DockCard

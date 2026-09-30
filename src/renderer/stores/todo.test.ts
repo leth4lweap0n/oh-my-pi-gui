@@ -4,9 +4,14 @@
  * re-pulls state) dedupe by semantic fingerprint, and only real edits append
  * transcript snapshots — capped so the archive keeps the newest entries.
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TodoPhase } from "../../shared/rpc-types";
-import { useTodoStore } from "./todo";
+import { DOCK_FINISHED_HIDE_MS } from "./dock-finished";
+import { selectTodoDockVisible, useTodoStore } from "./todo";
+
+// The store schedules its completed-plan grace period on window; the node test
+// environment has no window, and the global timers stand in for it.
+Object.assign(globalThis, { window: globalThis });
 
 function phase(name: string, ...tasks: Array<[string, string]>): TodoPhase {
 	return {
@@ -17,6 +22,7 @@ function phase(name: string, ...tasks: Array<[string, string]>): TodoPhase {
 
 afterEach(() => {
 	useTodoStore.getState().reset();
+	vi.useRealTimers();
 });
 
 describe("todo snapshot archive", () => {
@@ -75,5 +81,99 @@ describe("todo snapshot archive", () => {
 		useTodoStore.getState().reset();
 		expect(useTodoStore.getState().history).toEqual([]);
 		expect(useTodoStore.getState().historyHydrated).toBe(false);
+	});
+});
+
+describe("todo dock visibility", () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+	});
+
+	it("stays for outstanding work and drops out after the completed grace period", () => {
+		const store = useTodoStore.getState();
+		store.setPhases([phase("Build", ["scaffold", "pending"])]);
+		vi.advanceTimersByTime(DOCK_FINISHED_HIDE_MS * 3);
+		expect(selectTodoDockVisible(useTodoStore.getState())).toBe(true);
+
+		store.setPhases([phase("Build", ["scaffold", "completed"])]);
+		vi.advanceTimersByTime(DOCK_FINISHED_HIDE_MS - 1);
+		expect(selectTodoDockVisible(useTodoStore.getState())).toBe(true);
+
+		vi.advanceTimersByTime(1);
+		expect(selectTodoDockVisible(useTodoStore.getState())).toBe(false);
+	});
+
+	it("returns and re-hides when a task reopens and completes again", () => {
+		const store = useTodoStore.getState();
+		store.setPhases([phase("Build", ["scaffold", "completed"])]);
+		vi.advanceTimersByTime(DOCK_FINISHED_HIDE_MS);
+		expect(selectTodoDockVisible(useTodoStore.getState())).toBe(false);
+
+		store.setPhases([phase("Build", ["scaffold", "in_progress"])]);
+		expect(selectTodoDockVisible(useTodoStore.getState())).toBe(true);
+
+		// The reopened task completing starts a fresh grace period, not the one
+		// that already elapsed.
+		store.setPhases([phase("Build", ["scaffold", "completed"])]);
+		vi.advanceTimersByTime(DOCK_FINISHED_HIDE_MS - 1);
+		expect(selectTodoDockVisible(useTodoStore.getState())).toBe(true);
+		vi.advanceTimersByTime(1);
+		expect(selectTodoDockVisible(useTodoStore.getState())).toBe(false);
+	});
+
+	it("keeps the plan docked while a reminder is open, and re-arms after dismissing it", () => {
+		const store = useTodoStore.getState();
+		store.setPhases([phase("Build", ["scaffold", "completed"])]);
+		store.showReminder([{ content: "scaffold", status: "pending" }]);
+		vi.advanceTimersByTime(DOCK_FINISHED_HIDE_MS * 4);
+		expect(selectTodoDockVisible(useTodoStore.getState())).toBe(true);
+
+		store.clearReminder();
+		vi.advanceTimersByTime(DOCK_FINISHED_HIDE_MS);
+		expect(selectTodoDockVisible(useTodoStore.getState())).toBe(false);
+	});
+
+	it("drops a pending hide when the session resets", () => {
+		const store = useTodoStore.getState();
+		store.setPhases([phase("Build", ["scaffold", "completed"])]);
+		store.reset();
+		vi.advanceTimersByTime(DOCK_FINISHED_HIDE_MS * 2);
+		expect(selectTodoDockVisible(useTodoStore.getState())).toBe(false);
+		expect(useTodoStore.getState().phases).toEqual([]);
+	});
+
+	it("is not restarted by an identical re-hydration of the same finished plan", () => {
+		const store = useTodoStore.getState();
+		store.setPhases([phase("Build", ["scaffold", "completed"])]);
+		// Every agent_end re-pulls the finished plan, so an identical re-apply must
+		// not restart the clock — that would keep the card up for the whole session.
+		for (let elapsed = 0; elapsed < DOCK_FINISHED_HIDE_MS * 2; elapsed += 2000) {
+			store.setPhases([phase("Build", ["scaffold", "completed"])]);
+			vi.advanceTimersByTime(2000);
+		}
+		expect(selectTodoDockVisible(useTodoStore.getState())).toBe(false);
+	});
+
+	it("never shows a plan that was already finished at hydration — no grace period", () => {
+		const store = useTodoStore.getState();
+		store.reset();
+		store.setPhases([phase("Build", ["scaffold", "completed"], ["wire", "completed"])]);
+		// No timer advance: the card must never render, not even for 10 seconds.
+		expect(selectTodoDockVisible(useTodoStore.getState())).toBe(false);
+		vi.advanceTimersByTime(DOCK_FINISHED_HIDE_MS * 2);
+		expect(selectTodoDockVisible(useTodoStore.getState())).toBe(false);
+		expect(useTodoStore.getState().phases).toHaveLength(1);
+	});
+
+	it("still shows a plan that arrives unfinished and hides it only after the grace period", () => {
+		const store = useTodoStore.getState();
+		store.reset();
+		store.setPhases([phase("Build", ["scaffold", "in_progress"])]);
+		expect(selectTodoDockVisible(useTodoStore.getState())).toBe(true);
+		store.setPhases([phase("Build", ["scaffold", "completed"])]);
+		vi.advanceTimersByTime(DOCK_FINISHED_HIDE_MS - 1);
+		expect(selectTodoDockVisible(useTodoStore.getState())).toBe(true);
+		vi.advanceTimersByTime(1);
+		expect(selectTodoDockVisible(useTodoStore.getState())).toBe(false);
 	});
 });

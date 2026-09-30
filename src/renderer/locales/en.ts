@@ -118,6 +118,11 @@ export const en: Record<string, string> = {
 	"tabs.switchFailed": "Could not switch tab",
 	"tabs.confirmClose": "Close tab? The running task will be aborted",
 
+	// Git status segment (title bar, plan/20)
+	"gitSegment.branch": "Branch",
+	"gitSegment.counts": "{staged} staged, {unstaged} unstaged, {untracked} untracked",
+	"gitSegment.refresh": "Click to refresh",
+
 	// Worktree create dialog (tab × worktree, plan/20)
 	"worktree.baseScope":
 		"The new checkout starts from a committed revision. Uncommitted changes in this checkout are not copied.",

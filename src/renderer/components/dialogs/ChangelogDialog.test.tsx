@@ -52,11 +52,11 @@ afterEach(async () => {
 describe("ChangelogDialog", () => {
 	it("stays hidden until the ui store opens it", async () => {
 		await mount(<ChangelogDialog />);
-		expect(document.body.textContent ?? "").not.toContain("[Unreleased]");
+		expect(document.querySelector("h1, h2")).toBeNull();
 		await act(async () => {
 			useUiStore.getState().openChangelog();
 		});
-		expect(document.body.textContent ?? "").toContain("[Unreleased]");
+		expect(document.querySelector("h1, h2")).not.toBeNull();
 	});
 
 	it("renders the bundled changelog as sanitized markdown", async () => {
@@ -64,7 +64,9 @@ describe("ChangelogDialog", () => {
 		await mount(<ChangelogDialog />);
 		const text = document.body.textContent ?? "";
 		expect(text).toContain("Changelog");
-		expect(text).toContain("[Unreleased]");
+		// The newest section's own heading comes from the bundled file, whatever
+		// version it names — the test must not pin a version string.
+		expect(text).toMatch(/\[\d+\.\d+\.\d+\] - \d{4}-\d{2}-\d{2}/);
 		// The markdown pipeline renders headings as elements, not literal "#".
 		expect(document.querySelector("h1, h2")).not.toBeNull();
 	});
@@ -72,7 +74,7 @@ describe("ChangelogDialog", () => {
 	it("closes back to an empty body", async () => {
 		useUiStore.getState().openChangelog();
 		await mount(<ChangelogDialog />);
-		expect(document.body.textContent ?? "").toContain("[Unreleased]");
+		expect(document.querySelector("h1, h2")).not.toBeNull();
 		await act(async () => {
 			useUiStore.getState().closeChangelog();
 		});
@@ -80,6 +82,6 @@ describe("ChangelogDialog", () => {
 		await act(async () => {
 			await new Promise(resolve => setTimeout(resolve, 300));
 		});
-		expect(document.body.textContent ?? "").not.toContain("[Unreleased]");
+		expect(document.querySelector("h1, h2")).toBeNull();
 	});
 });

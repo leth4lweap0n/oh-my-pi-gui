@@ -1,6 +1,15 @@
 # Changelog
 
-## [Unreleased]
+## [0.9.12] - 2026-09-30
+
+### Added
+
+- **Git status segment**: the title bar now shows the active checkout's branch with dirty counters (`+staged`, `*unstaged`, `?untracked`), polled every 2.5 s and refreshed on click. Non-repos and detached HEADs show nothing.
+
+### Changed
+
+- **Finished plans leave the dock**: the Tasks card drops out of the workspace dock 10 seconds after its last task completes instead of sitting above the composer for the rest of the session. A plan that is *already* finished when a session hydrates (a resume, an app restart) never renders at all — no flash on every reopen — while reopened or newly added work brings the card back immediately, an open reminder keeps it pinned, and the transcript archive is untouched.
+- **Finished fan-outs leave the dock**: the Agents card follows the same rule once every subagent is done — a parked reviewer counts as finished, a live or stale registration pins the card — and the roster poll can no longer keep a finished run on screen.
 
 ## [0.9.10] - 2026-09-24
 
