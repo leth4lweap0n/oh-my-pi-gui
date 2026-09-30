@@ -46,8 +46,10 @@ jobs:
       - name: Tests
         run: bunx vitest run src/renderer src/shared src/preload
 
-      # Lint rules only, not the formatter: this repo is developed on Windows
-      # checkouts, so a whole-tree `biome check` would fail CI on CRLF endings
-      # rather than on anything real. Formatting stays a local/editor concern.
+      # Lint rules only, deliberately. `biome check .` also gates the formatter,
+      # which this repo's Windows working copies cannot satisfy (autocrlf
+      # checkouts are CRLF even though the committed blobs are LF) — that is
+      # noise for CI. Formatting stays a local/editor concern; lint is what CI
+      # must catch.
       - name: Lint
         run: bunx biome lint .
