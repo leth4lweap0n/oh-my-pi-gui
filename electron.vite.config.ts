@@ -77,10 +77,28 @@ export default defineConfig({
 	renderer: {
 		plugins: [tailwindcss()],
 		resolve: {
+			// This checkout is a nested repo inside a bun workspace: react and
+			// react-dom live in the monorepo-root node_modules while some GUI deps
+			// are installed under packages/gui. Without an explicit dedupe the
+			// optimizer emits several react-core chunks (each with its own
+			// dispatcher), so a component's useRef() reads a null dispatcher and
+			// React throws "Cannot read properties of null (reading 'useRef')".
+			dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime"],
 			alias: {
 				"@renderer": resolve(__dirname, "src/renderer"),
 				"@shared": resolve(__dirname, "src/shared"),
 			},
+		},
+		optimizeDeps: {
+			// One optimizer pass for the whole react family, so the shared core
+			// lands in a single chunk instead of being duplicated per entry.
+			include: [
+				"react",
+				"react/jsx-runtime",
+				"react/jsx-dev-runtime",
+				"react-dom",
+				"react-dom/client",
+			],
 		},
 		build: {
 			rollupOptions: {

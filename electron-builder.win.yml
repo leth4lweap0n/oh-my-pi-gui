@@ -1,4 +1,10 @@
 appId: sh.omp.gui
+# NOTE: do not add `electronLanguages: [en]` here. It prunes every locale .pak
+# out of the packaged app, and the Windows renderer then dies at startup with a
+# native fatal error — no console error, no Windows Error Reporting event, and
+# no crashpad dump (crashpad self-terminates unattached renderers with
+# 0xFFFF7003, which Electron surfaces as exitCode -36861). The window opens
+# blank white. Shipping the full locales/ directory is ~11 MB and is required.
 productName: omp
 afterPack: scripts/after-pack.cjs
 directories:
@@ -44,6 +50,3 @@ publish:
   provider: github
   owner: nornzach
   repo: oh-my-pi-gui
-
-electronLanguages:
-  - en

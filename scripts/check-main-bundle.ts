@@ -8,8 +8,11 @@
 
 import * as fs from "node:fs/promises";
 import { builtinModules } from "node:module";
+import { fileURLToPath } from "node:url";
 
-const BUNDLE = new URL("../out/main/index.js", import.meta.url).pathname;
+// fileURLToPath, not URL#pathname: pathname keeps the POSIX "/C:/..." shape on
+// Windows, which fs then refuses to open.
+const BUNDLE = fileURLToPath(new URL("../out/main/index.js", import.meta.url));
 const IMPORT_SPECIFIER = /^\s*(?:import|export)[^\n]*?\sfrom\s+["']([^"']+)["']/gm;
 
 // `original-fs` is not in `builtinModules` but Electron always resolves it: it is
